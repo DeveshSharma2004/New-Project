@@ -15,7 +15,8 @@ const uploadOnCloudnary = async (localFilePath) => {
       resource_type: "auto",
     })
 
-    console.log("fill is uploded on cloudnary", response.url);
+    //console.log("fill is uploded on cloudnary", response.url);
+    fs.unlinkSync(localFilePath)
     return response   
   } 
   catch (error) {
