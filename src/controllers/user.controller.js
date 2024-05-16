@@ -4,6 +4,7 @@ import {User} from "../models/User.model.js"
 import {uploadOnCloudnary} from "../utils/cloudnary.js"
 import {ApiResponse} from "../utils/APIResponse.js"
 import jwt from "jsonwebtoken"
+import { emit } from "nodemon";
 
 const generateAcessAndRefereshTokens = async(userId) => {
    try {
@@ -12,6 +13,9 @@ const generateAcessAndRefereshTokens = async(userId) => {
       const refereshToken = user.generateRefreshToken()
 
       user.refereshToken = refereshToken
+      user.save({validateBeforeSave: false})
+
+      user.accessToken = accessToken
       user.save({validateBeforeSave: false})
 
    } catch (error) {
@@ -208,9 +212,198 @@ try {
       throw new ApiError(401, error?.message || "Invalid refresh token")
    }
 })
+
+const changeCurrentPassword = asyncHandler(async(req, res) => {
+   const {oldPassword, newPassword} = req.body
+
+  const user = await User.findById(req.user?._id)
+  const isPasswordCorrect = await user.isPasswordCorrect(oldPassword)
+    
+  if (!isPasswordCorrect) {
+   throw new ApiError(400, "Invalid old password")
+  }
+
+  user.password = newPassword
+  await user.save({validateBeforeSave: false})
+
+  return res
+  .status(200)
+  .json(new ApiResponse(200, {}, "Password changed successfully"))
+})
+
+   const getCurrentUser = asyncHandler(async(req, res) => {
+      return res
+      .status(200)
+      .json(200, req.user, "current user fetched successfully")
+   })
+
+   const updateAccountDetails = asyncHandler(async(req, res) => {
+      const {fullName, email} = req.body
+
+      if (!fullName || !email) {
+         throw new ApiError(400, "All fields are required")
+      }
+                
+      const user = await User.findByIdAndUpdate(
+         req.user._id,
+       {
+         $set: {
+            fullName,
+            email 
+         }
+       },
+       {new: true}
+      
+      ).select("-password")
+
+      return res
+      .status(200)
+      .json(new ApiResponse(200,user,"Account details updated successsfully"))
+
+      
+   })
+
+   const updateUserAvtar = asyncHandler(async(req, res) => {
+      const avtarLocalPath =req.file?.path
+
+      if (!avtarLocalPath) {
+         throw new ApiError(400, "Avtar fill is missing")
+      }
+
+      const avtar = await  uploadOnCloudnary(avtarLocalPath)
+
+      if (!avtar.url) {
+         throw new ApiError(400, "Error while be upload on cloudnary")
+      }
+
+      const user = await User.findByIdAndUpdate(
+         req.user?._id,
+         {
+            $set: {
+               avtar: avtar.url
+            }
+         },
+         {new: true}
+      ).select("-password")
+
+      return res
+      .status(200)
+      .json(
+         new ApiResponse(200, user, "Avtar update successfully")
+      )
+   })
+
+   const updateUserCoverImage = asyncHandler(async(req, res) => {
+      const CoverImageLocalPath =req.file?.path
+
+      if (!CoverImageLocalPath) {
+         throw new ApiError(400, "coverImage fill is missing")
+      }
+
+      const coverImage = await  uploadOnCloudnary(avtarLocalPath)
+
+      if (!coverImage.url) {
+         throw new ApiError(400, "Error while be upload on cloudnary")
+      }
+
+      const user = await User.findByIdAndUpdate(
+         req.user?._id,
+         {
+            $set: {
+               coverImage: coverImage.url
+            }
+         },
+         {new: true}
+      ).select("-password")
+
+      return res
+      .status(200)
+      .json(
+         new ApiResponse(200, user, "coverImage update successfully")
+      )
+   })
+
+   const getUserChannelProfile = asyncHandler(async(req, res) => {
+      const {username} = req.params
+      
+      if (!username?.trim()) {
+         throw new ApiError(400, "Username is missing")
+      }
+
+      const channel = await User.aggregate([
+      {
+         $match: {
+            username: username?.toLowerCase()
+         }
+      }, 
+      {
+         $lookup: {
+            from: "subscriptions",
+            localField: "_id",
+            foreignField: "channel",
+            as: "subscribers"
+         },
+         
+      },
+      {
+         $lookup: {
+            from: "subscriptions",
+            localField: "_id",
+            foreignField: "sunscriber",
+            as: "subscribedTo"
+         }
+      },
+      {
+         $addFields: {
+            subscriberCount: {
+               $size: "$subscribers"
+            },
+            channelsSubscribedToCont: {
+               $size: "$channel"
+            },
+            isSubscribed: {
+               $cond:{
+                  if: {$in: [req.user?._id,"$subscribers.subscriber"]},
+                  then: true,
+                  else: false
+               }
+            }
+         },
+      },
+      {
+         $project: {
+            fullName: 1,
+            username: 1,
+            subscriberCount: 1,
+            channelsSubscribedToCont: 1,
+            isSubscribed: 1,
+            avtar: 1,
+            coverImage: 1,
+            email: 1
+         }
+      } 
+    ])
+
+    if (!channel?.length) {
+      throw new ApiError(404, "channel does not exists")
+    }
+
+    return res
+    .status(200)
+    .json(
+      new ApiResponse(200,channel[0],"User channel fatched successfully")
+    )
+   })
+
 export {
    registerUser,
     loginUser,
     logoutUser,
-    refreshAccessToken
+    refreshAccessToken,
+    changeCurrentPassword,
+    getCurrentUser,
+    updateAccountDetails,
+    updateUserAvtar,
+    updateUserCoverImage, 
+    getUserChannelProfile
    }
